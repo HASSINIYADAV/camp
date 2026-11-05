@@ -9,6 +9,9 @@ const supabase = config.supabaseUrl && config.supabasePublishableKey
 const state = {
   view: location.hash.startsWith("#/tickets") ? "tickets" : "events",
   eventId: null,
+  selectedEvent: null,
+  detailLoading: false,
+  detailError: "",
   events: [],
   registrations: [],
   session: null,
@@ -25,12 +28,22 @@ const app = document.querySelector("#app");
 const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 const initials = (value = "Campus") => value.trim().split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("");
 
-function navigate(view, eventId = null) {
+function navigate(view, eventId = null, selectedEvent = null) {
   state.view = view;
   state.eventId = eventId;
+  if (view === "details") {
+    state.selectedEvent = selectedEvent || state.events.find((event) => String(eventInfo(event).id) === String(eventId)) || null;
+    state.detailLoading = !state.selectedEvent && Boolean(eventId);
+    state.detailError = "";
+  } else {
+    state.selectedEvent = null;
+    state.detailLoading = false;
+    state.detailError = "";
+  }
   state.notice = "";
   location.hash = view === "tickets" ? "#/tickets" : eventId ? `#/event/${encodeURIComponent(eventId)}` : "#/events";
   render();
+  if (view === "details" && !state.selectedEvent && eventId) loadEventDetails(eventId);
 }
 
 function setNotice(message, type = "info") {
@@ -49,7 +62,7 @@ function dateLabel(event) {
 
 function eventInfo(event) {
   return {
-    id: event.id,
+    id: event.id ?? event.event_id ?? event.uuid,
     title: event.title || "Campus event",
     category: event.category || "Campus",
     description: event.description || event.details || "The organizer will share more details soon.",
@@ -83,6 +96,22 @@ async function loadEvents() {
 async function loadRegistrations() {
   state.registrations = await api("/api/me/registrations");
   if (!Array.isArray(state.registrations)) state.registrations = [];
+}
+
+async function loadEventDetails(eventId) {
+  try {
+    const event = await api(`/api/events/${encodeURIComponent(eventId)}`);
+    if (state.view !== "details" || String(state.eventId) !== String(eventId)) return;
+    state.selectedEvent = event;
+    state.detailLoading = false;
+    state.detailError = "";
+    render();
+  } catch (error) {
+    if (state.view !== "details" || String(state.eventId) !== String(eventId)) return;
+    state.detailLoading = false;
+    state.detailError = error.message || "The event details could not be loaded.";
+    render();
+  }
 }
 
 function noticeMarkup() {
@@ -122,8 +151,9 @@ function eventsPage() {
 }
 
 function detailsPage() {
-  const raw = state.events.find((event) => String(event.id) === String(state.eventId));
-  if (!raw) return `${header()}<main class="page-wrap"><div class="empty"><h2>Event not found</h2><button class="button button-outline" data-nav="events">Back to events</button></div></main>`;
+  const raw = state.selectedEvent || state.events.find((event) => String(eventInfo(event).id) === String(state.eventId));
+  if (!raw && state.detailLoading) return `${header()}<main class="page-wrap"><div class="empty"><span class="spinner"></span><h2>Loading event details…</h2></div></main>`;
+  if (!raw) return `${header()}<main class="page-wrap"><div class="empty"><h2>Couldn’t open this event</h2><p>${escapeHtml(state.detailError || "This event may have been removed. Return to the event list and try again.")}</p><button class="button button-outline" data-nav="events">Back to events</button></div></main>`;
   const item = eventInfo(raw);
   const alreadyRegistered = state.registrations.some((registration) => String(registration.event_id) === String(item.id));
   return `${header()}<main class="page-wrap detail-wrap">${noticeMarkup()}<button class="back-link" data-nav="events">← Back to events</button><div class="detail-layout"><section><div class="detail-art"><span class="eyebrow">CAMPUSCONNECT EVENT · ${escapeHtml(item.category.toUpperCase())}</span><div class="detail-art-letter">${escapeHtml(item.category.slice(0, 1).toUpperCase())}</div><div class="detail-art-title">${escapeHtml(item.title)}</div></div><span class="tag">${escapeHtml(item.category)}</span><h1 class="detail-title">${escapeHtml(item.title)}</h1><p class="detail-description">${escapeHtml(item.description)}</p><div class="detail-info"><div><span>DATE & TIME</span><strong>${escapeHtml(item.date)}</strong></div><div><span>LOCATION</span><strong>${escapeHtml(item.venue)}</strong></div><div><span>CAPACITY</span><strong>${item.capacity == null ? "Details to be announced" : escapeHtml(item.capacity)}</strong></div></div></section><aside class="register-card"><span class="eyebrow">YOUR NEXT CAMPUS MOMENT</span><h2>Come be part of it.</h2><p>${item.price == null ? "Check with the organizer for event costs." : `Ticket price: ₹${escapeHtml(item.price)}`}</p>${alreadyRegistered ? `<div class="success-box">You’re registered for this event. See it in My tickets.</div><button class="button button-dark full" data-nav="tickets">View my tickets</button>` : `<button class="button button-dark full" data-action="register" data-event-id="${escapeHtml(item.id)}" ${state.busy ? "disabled" : ""}>${state.busy ? "Saving your place…" : "Register for event ↗"}</button>`}<p class="fine-print">Registration saves your place. Payment is not collected through CampusConnect.</p></aside></div></main><footer><span class="brand"><span class="brand-icon">✳</span>CampusConnect</span><span>Good things happen when campus comes together.</span></footer>`;
@@ -155,7 +185,11 @@ function bindEvents() {
     navigate(el.dataset.nav === "tickets" ? "tickets" : "events");
   }));
   document.querySelectorAll("[data-category]").forEach((el) => el.addEventListener("click", () => { state.category = el.dataset.category; render(); }));
-  document.querySelectorAll("[data-open-event]").forEach((el) => el.addEventListener("click", () => navigate("details", el.dataset.openEvent)));
+  document.querySelectorAll("[data-open-event]").forEach((el) => el.addEventListener("click", () => {
+    const id = el.dataset.openEvent;
+    const selected = state.events.find((event) => String(eventInfo(event).id) === String(id)) || null;
+    navigate("details", id, selected);
+  }));
   document.querySelector("#event-search")?.addEventListener("input", (event) => { state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = document.querySelector("#event-search"); input?.focus(); input?.setSelectionRange(pos, pos); });
   document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
   document.querySelectorAll("[data-action]").forEach((el) => el.addEventListener("click", async (event) => {
@@ -228,7 +262,13 @@ async function start() {
     }
     await loadEvents();
     if (state.session) await loadRegistrations().catch(() => { state.registrations = []; });
-    if (location.hash.startsWith("#/event/")) { state.view = "details"; state.eventId = decodeURIComponent(location.hash.slice("#/event/".length)); }
+    if (location.hash.startsWith("#/event/")) {
+      state.view = "details";
+      state.eventId = decodeURIComponent(location.hash.slice("#/event/".length));
+      state.selectedEvent = state.events.find((event) => String(eventInfo(event).id) === String(state.eventId)) || null;
+      state.detailLoading = !state.selectedEvent;
+      if (!state.selectedEvent) loadEventDetails(state.eventId);
+    }
     render();
   } catch (error) {
     app.innerHTML = `<main class="load-error"><span class="brand"><span class="brand-icon">✳</span>CampusConnect</span><h1>We couldn’t load campus events.</h1><p>${escapeHtml(error.message || "Please check your connection and try again.")}</p><button class="button button-dark" id="retry">Try again</button></main>`;
