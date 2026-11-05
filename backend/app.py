@@ -249,4 +249,10 @@ def get_event_registrations(user, event_id):
 # ----------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000)),
+        debug=False
+    )
