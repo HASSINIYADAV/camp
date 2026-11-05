@@ -19,6 +19,7 @@ const state = {
   category: "All",
   query: "",
   busy: false,
+  pendingConfirmationEmail: "",
   notice: "",
   noticeType: "info",
 };
@@ -168,7 +169,7 @@ function ticketsPage() {
 
 function authPage() {
   const signup = state.authMode === "signup";
-  return `<div class="auth-shell"><a class="brand auth-brand" href="#/events" data-nav="events"><span class="brand-icon">✳</span>CampusConnect</a><div class="auth-card"><div class="auth-art"><span class="eyebrow">CAMPUS IS BETTER TOGETHER</span><h1>Your next<br>chapter starts<br><i>on campus.</i></h1><div class="auth-orbit">✳</div><span class="auth-caption">MEET · MAKE · BELONG</span></div><section class="auth-form-side"><button class="back-link" data-nav="events">← Back to events</button><span class="eyebrow">WELCOME TO YOUR COMMUNITY</span><h2>${signup ? "Create your account" : "Welcome back"}</h2><p>${signup ? "Find your people and make campus yours." : "Sign in and pick up where you left off."}</p>${noticeMarkup()}<form id="auth-form">${signup ? `<label>Full name<input name="fullName" autocomplete="name" required placeholder="Your name"></label>` : ""}<label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@college.edu"></label><label>Password<input name="password" type="password" minlength="6" autocomplete="${signup ? "new-password" : "current-password"}" required placeholder="At least 6 characters"></label><button class="button button-dark full" type="submit" ${state.busy ? "disabled" : ""}>${state.busy ? "Please wait…" : signup ? "Create account" : "Sign in"}</button></form><p class="auth-toggle">${signup ? "Already have an account?" : "New to CampusConnect?"} <button class="text-link" data-action="toggle-auth">${signup ? "Sign in" : "Create an account"}</button></p><p class="fine-print">Email confirmation may be required before your first sign-in.</p></section></div></div>`;
+  return `<div class="auth-shell"><a class="brand auth-brand" href="#/events" data-nav="events"><span class="brand-icon">✳</span>CampusConnect</a><div class="auth-card"><div class="auth-art"><span class="eyebrow">CAMPUS IS BETTER TOGETHER</span><h1>Your next<br>chapter starts<br><i>on campus.</i></h1><div class="auth-orbit">✳</div><span class="auth-caption">MEET · MAKE · BELONG</span></div><section class="auth-form-side"><button class="back-link" data-nav="events">← Back to events</button><span class="eyebrow">WELCOME TO YOUR COMMUNITY</span><h2>${signup ? "Create your account" : "Welcome back"}</h2><p>${signup ? "Find your people and make campus yours." : "Sign in and pick up where you left off."}</p>${noticeMarkup()}${state.pendingConfirmationEmail ? `<button class="text-link resend-confirmation" type="button" data-action="resend-confirmation" ${state.busy ? "disabled" : ""}>Resend the confirmation email</button>` : ""}<form id="auth-form">${signup ? `<label>Full name<input name="fullName" autocomplete="name" required placeholder="Your name"></label>` : ""}<label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@college.edu" value="${escapeHtml(state.pendingConfirmationEmail)}"></label><label>Password<input name="password" type="password" minlength="6" autocomplete="${signup ? "new-password" : "current-password"}" required placeholder="At least 6 characters"></label><button class="button button-dark full" type="submit" ${state.busy ? "disabled" : ""}>${state.busy ? "Please wait…" : signup ? "Create account" : "Sign in"}</button></form><p class="auth-toggle">${signup ? "Already have an account?" : "New to CampusConnect?"} <button class="text-link" data-action="toggle-auth">${signup ? "Sign in" : "Create an account"}</button></p><p class="fine-print">Email confirmation may be required before your first sign-in.</p></section></div></div>`;
 }
 
 function render() {
@@ -196,6 +197,7 @@ function bindEvents() {
     const action = el.dataset.action;
     if (action === "signin") { state.view = "auth"; state.authMode = "signin"; state.notice = ""; render(); }
     if (action === "toggle-auth") { state.authMode = state.authMode === "signin" ? "signup" : "signin"; state.notice = ""; render(); }
+    if (action === "resend-confirmation") await resendConfirmation();
     if (action === "register") await registerFor(el.dataset.eventId);
     if (action === "signout" && supabase) {
       const { error } = await supabase.auth.signOut();
@@ -215,7 +217,7 @@ async function submitAuth(event) {
       const { data, error } = await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.fullName } } });
       if (error) throw error;
       state.session = data.session;
-      if (!data.session) { state.busy = false; return setNotice("Check your inbox to confirm your email, then sign in.", "success"); }
+      if (!data.session) { state.pendingConfirmationEmail = values.email; state.busy = false; return setNotice("Check your inbox to confirm your email. If it doesn’t arrive, resend it below.", "success"); }
     } else {
       const { data, error } = await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
       if (error) throw error;
@@ -226,7 +228,23 @@ async function submitAuth(event) {
     navigate("events");
   } catch (error) {
     state.busy = false;
+    if (state.authMode === "signin" && /email not confirmed|confirm your email/i.test(error.message || "")) state.pendingConfirmationEmail = values.email;
     setNotice(error.message || "Could not sign in. Please try again.", "error");
+  }
+}
+
+async function resendConfirmation() {
+  if (!supabase || !state.pendingConfirmationEmail) return setNotice("Enter your account email address first.", "error");
+  state.busy = true;
+  render();
+  try {
+    const { error } = await supabase.auth.resend({ type: "signup", email: state.pendingConfirmationEmail, options: { emailRedirectTo: window.location.origin } });
+    if (error) throw error;
+    state.busy = false;
+    setNotice("Confirmation request sent. Check your inbox and spam folder.", "success");
+  } catch (error) {
+    state.busy = false;
+    setNotice(error.message || "Could not resend the confirmation email.", "error");
   }
 }
 
