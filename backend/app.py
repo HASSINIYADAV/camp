@@ -2,7 +2,7 @@
 import os
 from functools import wraps
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from flask_cors import CORS
 from supabase import create_client, Client
 from postgrest import APIError
@@ -47,6 +47,14 @@ def get_current_user():
 
     try:
         response = supabase.auth.get_user(token)
+        if response.user:
+            # Use the signed-in user's JWT for RLS-protected table operations.
+            user_supabase = create_client(
+                os.environ.get("SUPABASE_URL"),
+                os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+            )
+            user_supabase.postgrest.auth(token)
+            g.user_supabase = user_supabase
         return response.user
     except Exception:
         return None
@@ -159,10 +167,10 @@ def create_registration(user):
 
         # Create registration
         response = (
-            supabase.table("registrations")
+            g.user_supabase.table("registrations")
             .insert({
                 "event_id": event_id,
-                "student_id": user.id
+                "user_id": user.id
             })
             .execute()
         )
@@ -195,9 +203,9 @@ def create_registration(user):
 def get_my_registrations(user):
     try:
         response = (
-            supabase.table("registrations")
+            g.user_supabase.table("registrations")
             .select("*")
-            .eq("student_id", user.id)
+            .eq("user_id", user.id)
             .execute()
         )
 
