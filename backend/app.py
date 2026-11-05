@@ -170,7 +170,7 @@ def create_registration(user):
             g.user_supabase.table("registrations")
             .insert({
                 "event_id": event_id,
-                "user_id": user.id
+                "student_id": user.id
             })
             .execute()
         )
@@ -205,7 +205,7 @@ def get_my_registrations(user):
         response = (
             g.user_supabase.table("registrations")
             .select("*")
-            .eq("user_id", user.id)
+            .eq("student_id", user.id)
             .execute()
         )
 
