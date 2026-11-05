@@ -107,7 +107,7 @@ def get_event(event_id):
         response = (
             supabase.table("events")
             .select("*")
-            .eq("id", event_id)
+            .eq("event_id", event_id)
             .limit(1)
             .execute()
         )
@@ -146,8 +146,8 @@ def create_registration(user):
         # Check whether event exists
         event = (
             supabase.table("events")
-            .select("id")
-            .eq("id", event_id)
+            .select("event_id")
+            .eq("event_id", event_id)
             .limit(1)
             .execute()
         )
@@ -162,7 +162,7 @@ def create_registration(user):
             supabase.table("registrations")
             .insert({
                 "event_id": event_id,
-                "user_id": user.id
+                "student_id": user.id
             })
             .execute()
         )
@@ -197,7 +197,7 @@ def get_my_registrations(user):
         response = (
             supabase.table("registrations")
             .select("*")
-            .eq("user_id", user.id)
+            .eq("student_id", user.id)
             .execute()
         )
 
@@ -224,8 +224,8 @@ def get_event_registrations(user, event_id):
         # Find event and its organizer
         event = (
             supabase.table("events")
-            .select("id, organizer_id")
-            .eq("id", event_id)
+            .select("event_id, student_id")
+            .eq("event_id", event_id)
             .limit(1)
             .execute()
         )
@@ -238,7 +238,7 @@ def get_event_registrations(user, event_id):
         event_data = event.data[0]
 
         # Check organizer permission
-        if str(event_data["organizer_id"]) != str(user.id):
+        if str(event_data["student_id"]) != str(user.id):
             return jsonify({
                 "error": "Only the event organizer can view attendees"
             }), 403
