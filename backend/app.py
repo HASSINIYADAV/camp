@@ -3,6 +3,7 @@ import os
 from functools import wraps
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from supabase import create_client, Client
 from postgrest import APIError
 from dotenv import load_dotenv
@@ -10,6 +11,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
+# Browser requests are limited to the configured frontend origins. Set
+# FRONTEND_ORIGINS to a comma-separated list in the Render service settings.
+frontend_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CORS(
+    app,
+    resources={r"/api/*": {"origins": frontend_origins}},
+    allow_headers=["Authorization", "Content-Type"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 # Supabase connection
 supabase: Client = create_client(
